@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: payment-service
+  config:
+    import: optional:configserver:http://localhost:8888
+  cloud:
+    config:
+      fail-fast: false
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ecom_db
+    username: postgres
+    password: postgres
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+server:
+  port: 8089
+
+logging:
+  level:
+    root: INFO
+    com.ecom: DEBUG
+
