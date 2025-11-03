@@ -36,7 +36,7 @@ import java.util.UUID;
  * tokens are encrypted at rest. This service never stores raw card numbers.
  */
 @RestController
-@RequestMapping("/v1/payment")
+@RequestMapping("/api/v1/payment")
 @Tag(name = "Payment", description = "Payment processing and payment method management endpoints")
 @SecurityRequirement(name = "bearerAuth")
 public class PaymentController {
