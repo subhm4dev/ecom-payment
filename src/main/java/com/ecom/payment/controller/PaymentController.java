@@ -1,13 +1,29 @@
 package com.ecom.payment.controller;
 
+import com.ecom.payment.model.request.ProcessPaymentRequest;
+import com.ecom.payment.model.request.RefundPaymentRequest;
+import com.ecom.payment.model.request.SavePaymentMethodRequest;
+import com.ecom.payment.model.response.PaymentMethodResponse;
+import com.ecom.payment.model.response.PaymentResponse;
+import com.ecom.payment.security.JwtAuthenticationToken;
+import com.ecom.payment.service.PaymentService;
+import com.ecom.response.dto.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -39,7 +55,11 @@ import java.util.UUID;
 @RequestMapping("/api/v1/payment")
 @Tag(name = "Payment", description = "Payment processing and payment method management endpoints")
 @SecurityRequirement(name = "bearerAuth")
+@RequiredArgsConstructor
+@Slf4j
 public class PaymentController {
+    
+    private final PaymentService paymentService;
 
     /**
      * Process payment
@@ -63,24 +83,19 @@ public class PaymentController {
         description = "Processes a payment transaction through payment gateway. Used by checkout service."
     )
     @SecurityRequirement(name = "bearerAuth")
-    public ResponseEntity<Object> processPayment(@Valid @RequestBody Object paymentRequest) {
-        // TODO: Implement payment processing logic
-        // 1. Extract userId from X-User-Id header
-        // 2. Extract tenantId from X-Tenant-Id header
-        // 3. Validate paymentRequest DTO (amount, currency, paymentMethodId or cardDetails, orderId)
-        // 4. If paymentMethodId provided, fetch saved payment method (tokenized)
-        // 5. If cardDetails provided, tokenize card through payment gateway
-        // 6. Charge amount through payment gateway (Stripe, PayPal, etc.)
-        // 7. Create Payment entity with:
-        //     - Payment gateway transaction ID
-        //     - Amount, currency, status (SUCCESS, FAILED, PENDING)
-        //     - Order ID (if provided)
-        //     - Tokenized payment method reference
-        // 8. Persist payment record
-        // 9. Publish PaymentProcessed event to Kafka
-        // 10. Return payment response with transactionId and status (201 Created)
-        // 11. Handle BusinessException for PAYMENT_FAILED, INVALID_PAYMENT_METHOD
-        return ResponseEntity.status(HttpStatus.CREATED).body(null);
+    @PreAuthorize("hasRole('CUSTOMER') or hasRole('ADMIN') or hasRole('SELLER')")
+    public ResponseEntity<ApiResponse<PaymentResponse>> processPayment(
+            @Valid @RequestBody ProcessPaymentRequest request,
+            Authentication authentication) {
+        
+        log.info("Processing payment: amount={}", request.amount());
+        
+        UUID userId = getUserIdFromAuthentication(authentication);
+        UUID tenantId = getTenantIdFromAuthentication(authentication);
+        
+        PaymentResponse response = paymentService.processPayment(userId, tenantId, request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(ApiResponse.success(response, "Payment processed successfully"));
     }
 
     /**
@@ -98,21 +113,19 @@ public class PaymentController {
         description = "Processes a refund for a completed payment. Supports full or partial refunds."
     )
     @SecurityRequirement(name = "bearerAuth")
-    public ResponseEntity<Object> refundPayment(@Valid @RequestBody Object refundRequest) {
-        // TODO: Implement refund processing logic
-        // 1. Extract userId from X-User-Id header
-        // 2. Validate refundRequest DTO (paymentId, amount, reason)
-        // 3. Find Payment entity by paymentId
-        // 4. Verify payment belongs to user or user is admin
-        // 5. Verify payment status allows refund (SUCCESS, not already refunded)
-        // 6. Process refund through payment gateway
-        // 7. Update Payment entity status (REFUNDED or PARTIALLY_REFUNDED)
-        // 8. Create Refund record with amount, reason, timestamp
-        // 9. Persist changes
-        // 10. Publish PaymentRefunded event to Kafka
-        // 11. Return refund confirmation
-        // 12. Handle BusinessException for PAYMENT_NOT_FOUND, ALREADY_REFUNDED, INVALID_REFUND_AMOUNT
-        return ResponseEntity.ok(null);
+    @PreAuthorize("hasRole('ADMIN') or hasRole('SELLER') or hasRole('STAFF')")
+    public ResponseEntity<ApiResponse<PaymentResponse>> refundPayment(
+            @Valid @RequestBody RefundPaymentRequest request,
+            Authentication authentication) {
+        
+        log.info("Processing refund: paymentId={}", request.paymentId());
+        
+        UUID userId = getUserIdFromAuthentication(authentication);
+        UUID tenantId = getTenantIdFromAuthentication(authentication);
+        List<String> roles = getRolesFromAuthentication(authentication);
+        
+        PaymentResponse response = paymentService.refundPayment(userId, tenantId, roles, request);
+        return ResponseEntity.ok(ApiResponse.success(response, "Refund processed successfully"));
     }
 
     /**
@@ -130,19 +143,19 @@ public class PaymentController {
         description = "Tokenizes and saves a payment method for future use. Card details are never stored, only tokens."
     )
     @SecurityRequirement(name = "bearerAuth")
-    public ResponseEntity<Object> savePaymentMethod(@Valid @RequestBody Object paymentMethodRequest) {
-        // TODO: Implement payment method saving logic
-        // 1. Extract userId from X-User-Id header
-        // 2. Validate paymentMethodRequest DTO (cardDetails or walletDetails)
-        // 3. Tokenize payment method through payment gateway
-        // 4. Create PaymentMethod entity with:
-        //     - Tokenized reference from gateway
-        //     - Masked card number (last 4 digits) for display
-        //     - Card type, expiry (if applicable)
-        //     - User ID
-        // 5. Persist to database (encrypted)
-        // 6. Return payment method response with paymentMethodId (201 Created)
-        return ResponseEntity.status(HttpStatus.CREATED).body(null);
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<ApiResponse<PaymentMethodResponse>> savePaymentMethod(
+            @Valid @RequestBody SavePaymentMethodRequest request,
+            Authentication authentication) {
+        
+        log.info("Saving payment method: type={}", request.type());
+        
+        UUID userId = getUserIdFromAuthentication(authentication);
+        UUID tenantId = getTenantIdFromAuthentication(authentication);
+        
+        PaymentMethodResponse response = paymentService.savePaymentMethod(userId, tenantId, request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(ApiResponse.success(response, "Payment method saved successfully"));
     }
 
     /**
@@ -159,12 +172,17 @@ public class PaymentController {
         description = "Returns all payment methods saved by the authenticated user"
     )
     @SecurityRequirement(name = "bearerAuth")
-    public ResponseEntity<Object> getPaymentMethods() {
-        // TODO: Implement payment method retrieval logic
-        // 1. Extract userId from X-User-Id header
-        // 2. Query PaymentMethod repository for all methods belonging to user
-        // 3. Return list of payment methods (with masked details only, no tokens)
-        return ResponseEntity.ok(null);
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<ApiResponse<List<PaymentMethodResponse>>> getPaymentMethods(
+            Authentication authentication) {
+        
+        log.info("Getting payment methods");
+        
+        UUID userId = getUserIdFromAuthentication(authentication);
+        UUID tenantId = getTenantIdFromAuthentication(authentication);
+        
+        List<PaymentMethodResponse> response = paymentService.getPaymentMethods(userId, tenantId);
+        return ResponseEntity.ok(ApiResponse.success(response, "Payment methods retrieved successfully"));
     }
 
     /**
@@ -180,15 +198,17 @@ public class PaymentController {
         description = "Removes a saved payment method. Users can only delete their own payment methods."
     )
     @SecurityRequirement(name = "bearerAuth")
-    public ResponseEntity<Void> deletePaymentMethod(@PathVariable UUID paymentMethodId) {
-        // TODO: Implement payment method deletion logic
-        // 1. Extract userId from X-User-Id header
-        // 2. Find PaymentMethod entity by paymentMethodId
-        // 3. Verify ownership (paymentMethod.userId == currentUserId)
-        // 4. Delete payment method
-        // 5. Optionally: Delete token from payment gateway
-        // 6. Return 204 No Content
-        // 7. Handle 404 if not found, 403 if unauthorized
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<Void> deletePaymentMethod(
+            @PathVariable UUID paymentMethodId,
+            Authentication authentication) {
+        
+        log.info("Deleting payment method: paymentMethodId={}", paymentMethodId);
+        
+        UUID userId = getUserIdFromAuthentication(authentication);
+        UUID tenantId = getTenantIdFromAuthentication(authentication);
+        
+        paymentService.deletePaymentMethod(userId, tenantId, paymentMethodId);
         return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 
@@ -206,15 +226,20 @@ public class PaymentController {
         description = "Returns payment transaction history for the authenticated user"
     )
     @SecurityRequirement(name = "bearerAuth")
-    public ResponseEntity<Object> getPaymentHistory(
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<ApiResponse<Page<PaymentResponse>>> getPaymentHistory(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        // TODO: Implement payment history retrieval logic
-        // 1. Extract userId from X-User-Id header
-        // 2. Query Payment repository for user's payments with pagination
-        // 3. Include associated refunds if any
-        // 4. Return paginated list of payment records
-        return ResponseEntity.ok(null);
+            @RequestParam(defaultValue = "20") int size,
+            Authentication authentication) {
+        
+        log.info("Getting payment history: page={}, size={}", page, size);
+        
+        UUID userId = getUserIdFromAuthentication(authentication);
+        UUID tenantId = getTenantIdFromAuthentication(authentication);
+        
+        Pageable pageable = PageRequest.of(page, size);
+        Page<PaymentResponse> response = paymentService.getPaymentHistory(userId, tenantId, pageable);
+        return ResponseEntity.ok(ApiResponse.success(response, "Payment history retrieved successfully"));
     }
 
     /**
@@ -231,15 +256,72 @@ public class PaymentController {
         description = "Retrieves current status of a payment transaction"
     )
     @SecurityRequirement(name = "bearerAuth")
-    public ResponseEntity<Object> getPaymentStatus(@PathVariable UUID paymentId) {
-        // TODO: Implement payment status retrieval logic
-        // 1. Extract userId from X-User-Id header
-        // 2. Find Payment entity by paymentId
-        // 3. Verify ownership or admin access
-        // 4. Optionally: Sync status with payment gateway if status is PENDING
-        // 5. Return payment status response
-        // 6. Handle 404 if payment not found
-        return ResponseEntity.ok(null);
+    @PreAuthorize("hasRole('ADMIN') or hasRole('SELLER') or hasRole('STAFF') or hasRole('CUSTOMER')")
+    public ResponseEntity<ApiResponse<PaymentResponse>> getPaymentStatus(
+            @PathVariable UUID paymentId,
+            Authentication authentication) {
+        
+        log.info("Getting payment status: paymentId={}", paymentId);
+        
+        UUID userId = getUserIdFromAuthentication(authentication);
+        UUID tenantId = getTenantIdFromAuthentication(authentication);
+        List<String> roles = getRolesFromAuthentication(authentication);
+        
+        PaymentResponse response = paymentService.getPaymentStatus(userId, tenantId, roles, paymentId);
+        return ResponseEntity.ok(ApiResponse.success(response, "Payment status retrieved successfully"));
+    }
+    
+    /**
+     * Webhook endpoint for payment gateway callbacks
+     * 
+     * <p>This endpoint receives webhook notifications from payment gateways
+     * (Razorpay, PayU, etc.) to update payment status asynchronously.
+     * 
+     * <p>This endpoint is public (no JWT required) but verifies webhook signature.
+     */
+    @PostMapping("/webhook")
+    @Operation(
+        summary = "Payment webhook",
+        description = "Receives webhook notifications from payment gateway. Verifies signature and updates payment status."
+    )
+    public ResponseEntity<Void> handleWebhook(
+            @RequestBody String payload,
+            @RequestHeader("X-Razorpay-Signature") String signature) {
+        
+        log.info("Received payment webhook");
+        
+        paymentService.handleWebhook(payload, signature);
+        return ResponseEntity.ok().build();
+    }
+    
+    /**
+     * Extract user ID from JWT authentication token
+     */
+    private UUID getUserIdFromAuthentication(Authentication authentication) {
+        if (authentication instanceof JwtAuthenticationToken jwtToken) {
+            return UUID.fromString(jwtToken.getUserId());
+        }
+        throw new IllegalStateException("Invalid authentication token");
+    }
+    
+    /**
+     * Extract tenant ID from JWT authentication token
+     */
+    private UUID getTenantIdFromAuthentication(Authentication authentication) {
+        if (authentication instanceof JwtAuthenticationToken jwtToken) {
+            return UUID.fromString(jwtToken.getTenantId());
+        }
+        throw new IllegalStateException("Invalid authentication token");
+    }
+    
+    /**
+     * Extract roles from JWT authentication token
+     */
+    private List<String> getRolesFromAuthentication(Authentication authentication) {
+        if (authentication instanceof JwtAuthenticationToken jwtToken) {
+            return jwtToken.getRoles();
+        }
+        return java.util.Collections.emptyList();
     }
 }
 
