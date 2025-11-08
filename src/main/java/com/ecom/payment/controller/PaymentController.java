@@ -1,8 +1,10 @@
 package com.ecom.payment.controller;
 
+import com.ecom.payment.model.request.CreateOrderRequest;
 import com.ecom.payment.model.request.ProcessPaymentRequest;
 import com.ecom.payment.model.request.RefundPaymentRequest;
 import com.ecom.payment.model.request.SavePaymentMethodRequest;
+import com.ecom.payment.model.response.CreateOrderResponse;
 import com.ecom.payment.model.response.PaymentMethodResponse;
 import com.ecom.payment.model.response.PaymentResponse;
 import com.ecom.payment.security.JwtAuthenticationToken;
@@ -60,6 +62,53 @@ import java.util.UUID;
 public class PaymentController {
     
     private final PaymentService paymentService;
+
+    /**
+     * Create Razorpay order for client-side checkout
+     * 
+     * <p>Creates a Razorpay order without processing payment. Used for client-side
+     * Razorpay checkout modal integration. Returns a Razorpay order_id that can
+     * be used to open the Razorpay checkout modal in the frontend.
+     * 
+     * <p>Flow:
+     * <ul>
+     *   <li>Creates order in Razorpay with amount and currency</li>
+     *   <li>Returns Razorpay order_id</li>
+     *   <li>Frontend uses order_id to open Razorpay checkout modal</li>
+     *   <li>After payment, frontend calls /process with payment_id to verify</li>
+     * </ul>
+     * 
+     * <p>This endpoint is protected and requires authentication.
+     */
+    @PostMapping("/order/create")
+    @Operation(
+        summary = "Create Razorpay order",
+        description = "Creates a Razorpay order for client-side checkout. Returns order_id to open Razorpay checkout modal."
+    )
+    @SecurityRequirement(name = "bearerAuth")
+    @PreAuthorize("hasRole('CUSTOMER') or hasRole('ADMIN') or hasRole('SELLER')")
+    public ResponseEntity<ApiResponse<CreateOrderResponse>> createOrder(
+            @Valid @RequestBody CreateOrderRequest request,
+            Authentication authentication) {
+        
+        // Debug: Log authentication details
+        if (authentication != null) {
+            log.debug("Authentication: principal={}, authorities={}", 
+                authentication.getPrincipal(), 
+                authentication.getAuthorities());
+        } else {
+            log.warn("Authentication is null!");
+        }
+        
+        log.info("Creating Razorpay order: amount={}", request.amount());
+        
+        UUID userId = getUserIdFromAuthentication(authentication);
+        UUID tenantId = getTenantIdFromAuthentication(authentication);
+        
+        CreateOrderResponse response = paymentService.createOrder(userId, tenantId, request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(ApiResponse.success(response, "Razorpay order created successfully"));
+    }
 
     /**
      * Process payment

@@ -234,6 +234,39 @@ public class RazorpayGateway implements PaymentGateway {
         }
     }
     
+    /**
+     * Create Razorpay order (for client-side checkout)
+     * Creates an order without processing payment - used for Razorpay checkout modal
+     */
+    @Override
+    public String createOrder(PaymentRequest request) {
+        try {
+            RazorpayClient client = getClient();
+            
+            JSONObject orderRequest = new JSONObject();
+            orderRequest.put("amount", request.amount().multiply(java.math.BigDecimal.valueOf(100)).longValue()); // Convert to paise
+            orderRequest.put("currency", request.currency() != null ? request.currency() : "INR");
+            orderRequest.put("receipt", request.orderId() != null ? request.orderId().toString() : "receipt_" + System.currentTimeMillis());
+            
+            // Don't specify payment method - let user choose in Razorpay modal
+            // This allows client-side checkout to handle all payment methods
+            
+            Order order = client.orders.create(orderRequest);
+            
+            String razorpayOrderId = order.get("id");
+            log.info("Razorpay order created for client-side checkout: orderId={}", razorpayOrderId);
+            
+            return razorpayOrderId;
+            
+        } catch (RazorpayException e) {
+            log.error("Failed to create Razorpay order", e);
+            throw new RuntimeException("Failed to create Razorpay order: " + e.getMessage(), e);
+        } catch (Exception e) {
+            log.error("Unexpected error creating Razorpay order", e);
+            throw new RuntimeException("Failed to create Razorpay order: " + e.getMessage(), e);
+        }
+    }
+    
     @Override
     public String getProviderName() {
         return "RAZORPAY";

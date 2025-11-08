@@ -27,7 +27,10 @@ public record ProcessPaymentRequest(
     PaymentMethodRequest paymentMethod,
     
     @JsonProperty("phone_number")
-    String phoneNumber
+    String phoneNumber,
+    
+    @JsonProperty("payment_gateway_transaction_id")
+    String paymentGatewayTransactionId // For verifying payments already processed client-side (e.g., Razorpay payment_id)
 ) {
     public record PaymentMethodRequest(
         String type, // CARD, UPI, WALLET, etc.

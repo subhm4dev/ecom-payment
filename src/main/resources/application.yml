@@ -40,9 +40,9 @@ jwt:
 
 # Razorpay Configuration
 razorpay:
-  key-id: ${RAZORPAY_KEY_ID:your_razorpay_key_id}
-  key-secret: ${RAZORPAY_KEY_SECRET:your_razorpay_key_secret}
-  webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:your_razorpay_webhook_secret}
+  key-id: ${RAZORPAY_KEY_ID:rzp_test_RdH1PD2IVUJ9xp}
+  key-secret: ${RAZORPAY_KEY_SECRET:0zYbnEqikpsp89WVocKKN36p}
+  webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:webhook_secret_placeholder}
 
 # HTTP Client Configuration (ResilientWebClient)
 http-client:

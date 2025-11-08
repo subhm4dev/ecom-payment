@@ -55,5 +55,11 @@ public interface PaymentService {
      * Handle webhook from payment gateway
      */
     void handleWebhook(String payload, String signature);
+    
+    /**
+     * Create a Razorpay order for client-side checkout
+     * Returns order_id that can be used to open Razorpay checkout modal
+     */
+    com.ecom.payment.model.response.CreateOrderResponse createOrder(UUID userId, UUID tenantId, com.ecom.payment.model.request.CreateOrderRequest request);
 }
 

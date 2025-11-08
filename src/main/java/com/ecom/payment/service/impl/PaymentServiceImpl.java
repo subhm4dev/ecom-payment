@@ -83,7 +83,15 @@ public class PaymentServiceImpl implements PaymentService {
             token = tokenizeResponse.token();
         }
         
-        // Create gateway payment request
+        com.ecom.payment.gateway.dto.PaymentResponse gatewayResponse;
+        
+        // If paymentGatewayTransactionId is provided, payment was already processed client-side
+        // Just verify the payment status with the gateway
+        if (request.paymentGatewayTransactionId() != null && !request.paymentGatewayTransactionId().isEmpty()) {
+            log.info("Verifying client-side payment: paymentGatewayTransactionId={}", request.paymentGatewayTransactionId());
+            gatewayResponse = paymentGateway.getPaymentStatus(request.paymentGatewayTransactionId());
+        } else {
+            // Process payment through gateway (server-side)
         PaymentRequest gatewayRequest = new PaymentRequest(
             userId,
             tenantId,
@@ -99,8 +107,8 @@ public class PaymentServiceImpl implements PaymentService {
             null // callback URL
         );
         
-        // Process payment through gateway
-        com.ecom.payment.gateway.dto.PaymentResponse gatewayResponse = paymentGateway.processPayment(gatewayRequest);
+            gatewayResponse = paymentGateway.processPayment(gatewayRequest);
+        }
         
         // Create payment entity
         Payment payment = Payment.builder()
@@ -399,6 +407,46 @@ public class PaymentServiceImpl implements PaymentService {
         // Parse webhook payload and update payment status
         // This is a simplified implementation - in production, you'd parse the actual webhook payload
         log.info("Webhook verified and processed");
+    }
+    
+    @Override
+    @Transactional
+    public com.ecom.payment.model.response.CreateOrderResponse createOrder(UUID userId, UUID tenantId, com.ecom.payment.model.request.CreateOrderRequest request) {
+        log.info("Creating Razorpay order for client-side checkout: userId={}, amount={}", userId, request.amount());
+        
+        // Determine payment method type
+        Payment.PaymentMethodType methodType = request.paymentMethodType() != null 
+            ? Payment.PaymentMethodType.valueOf(request.paymentMethodType().toUpperCase())
+            : Payment.PaymentMethodType.CARD;
+        
+        // Create gateway payment request (for order creation only)
+        PaymentRequest gatewayRequest = new PaymentRequest(
+            userId,
+            tenantId,
+            request.orderId(),
+            null, // No payment method ID for new orders
+            methodType,
+            request.amount(),
+            request.currency() != null ? request.currency() : "INR",
+            null, // No token needed for order creation
+            null, // No UPI ID needed for order creation
+            null, // No phone number needed
+            "Order payment",
+            null // No callback URL
+        );
+        
+        // Create order in gateway (returns Razorpay order_id)
+        String razorpayOrderId = paymentGateway.createOrder(gatewayRequest);
+        
+        log.info("Razorpay order created: razorpayOrderId={}", razorpayOrderId);
+        
+        return new com.ecom.payment.model.response.CreateOrderResponse(
+            request.orderId(),
+            razorpayOrderId,
+            request.amount(),
+            request.currency() != null ? request.currency() : "INR",
+            "CREATED"
+        );
     }
     
     /**

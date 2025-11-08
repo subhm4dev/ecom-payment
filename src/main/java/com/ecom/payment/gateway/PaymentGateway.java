@@ -58,6 +58,22 @@ public interface PaymentGateway {
     boolean verifyWebhookSignature(String payload, String signature);
     
     /**
+     * Create a payment order (for client-side checkout)
+     * 
+     * Creates an order in the payment gateway without processing payment.
+     * Used for client-side checkout flows (e.g., Razorpay checkout modal).
+     * 
+     * @param request Order creation request with amount, currency, etc.
+     * @return Order response with gateway order ID
+     */
+    default String createOrder(PaymentRequest request) {
+        // Default implementation: create order through processPayment
+        // Gateways can override for optimized order creation
+        PaymentResponse response = processPayment(request);
+        return response.gatewayTransactionId();
+    }
+    
+    /**
      * Get gateway provider name
      * 
      * @return Provider name (e.g., "RAZORPAY")
