@@ -18,7 +18,6 @@ import com.ecom.payment.repository.PaymentRepository;
 import com.ecom.payment.service.PaymentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -28,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -85,9 +85,31 @@ public class PaymentServiceImpl implements PaymentService {
         
         com.ecom.payment.gateway.dto.PaymentResponse gatewayResponse;
         
-        // If paymentGatewayTransactionId is provided, payment was already processed client-side
-        // Just verify the payment status with the gateway
+        // Idempotency check: If paymentGatewayTransactionId is provided, check if payment already exists
         if (request.paymentGatewayTransactionId() != null && !request.paymentGatewayTransactionId().isEmpty()) {
+            // Check if payment with this transaction ID already exists
+            Optional<Payment> existingPayment = paymentRepository.findByGatewayTransactionId(
+                request.paymentGatewayTransactionId()
+            );
+            
+            if (existingPayment.isPresent()) {
+                Payment payment = existingPayment.get();
+                // Verify it belongs to the same user and tenant
+                if (payment.getUserId().equals(userId) && payment.getTenantId().equals(tenantId)) {
+                    log.info("Payment already exists for transaction ID: {}, returning existing payment: paymentId={}", 
+                        request.paymentGatewayTransactionId(), payment.getId());
+                    return toResponse(payment);
+                } else {
+                    log.warn("Payment with transaction ID {} exists but belongs to different user/tenant. userId={}, tenantId={}, existingUserId={}, existingTenantId={}", 
+                        request.paymentGatewayTransactionId(), userId, tenantId, payment.getUserId(), payment.getTenantId());
+                    throw new BusinessException(
+                        ErrorCode.INVALID_REQUEST,
+                        "Payment transaction ID already used by another user"
+                    );
+                }
+            }
+            
+            // Payment doesn't exist, verify the payment status with the gateway
             log.info("Verifying client-side payment: paymentGatewayTransactionId={}", request.paymentGatewayTransactionId());
             gatewayResponse = paymentGateway.getPaymentStatus(request.paymentGatewayTransactionId());
         } else {

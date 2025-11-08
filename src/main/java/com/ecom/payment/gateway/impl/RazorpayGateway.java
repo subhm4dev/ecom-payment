@@ -19,6 +19,9 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Razorpay Payment Gateway Implementation
@@ -189,12 +192,34 @@ public class RazorpayGateway implements PaymentGateway {
     
     @Override
     public PaymentResponse getPaymentStatus(String gatewayTransactionId) {
+        log.info("Fetching payment status from Razorpay: transactionId={}", gatewayTransactionId);
+        
         try {
-            RazorpayClient client = getClient();
-            com.razorpay.Payment payment = client.payments.fetch(gatewayTransactionId);
+            // Use CompletableFuture with timeout to prevent hanging
+            CompletableFuture<com.razorpay.Payment> future = CompletableFuture.supplyAsync(() -> {
+                try {
+                    RazorpayClient client = getClient();
+                    log.debug("Calling Razorpay API to fetch payment: transactionId={}", gatewayTransactionId);
+                    com.razorpay.Payment payment = client.payments.fetch(gatewayTransactionId);
+                    log.debug("Received response from Razorpay: transactionId={}", gatewayTransactionId);
+                    return payment;
+                } catch (RazorpayException e) {
+                    log.error("RazorpayException in async call: transactionId={}", gatewayTransactionId, e);
+                    throw new RuntimeException(e);
+                } catch (Exception e) {
+                    log.error("Unexpected error in async Razorpay call: transactionId={}", gatewayTransactionId, e);
+                    throw new RuntimeException(e);
+                }
+            });
+            
+            // Wait max 20 seconds for Razorpay response
+            com.razorpay.Payment payment = future.get(20, TimeUnit.SECONDS);
             
             String status = payment.get("status");
             String paymentId = payment.get("id");
+            
+            log.info("Payment status fetched successfully: transactionId={}, status={}, paymentId={}", 
+                gatewayTransactionId, status, paymentId);
             
             Payment.PaymentStatus paymentStatus = mapRazorpayStatus(status);
             
@@ -207,15 +232,48 @@ public class RazorpayGateway implements PaymentGateway {
                 null
             );
             
-        } catch (RazorpayException e) {
-            log.error("Failed to fetch payment status", e);
+        } catch (TimeoutException e) {
+            log.error("Razorpay API call timed out after 20 seconds: transactionId={}", gatewayTransactionId);
             return new PaymentResponse(
                 gatewayTransactionId,
                 null,
                 Payment.PaymentStatus.FAILED,
                 null,
                 null,
-                e.getMessage()
+                "Payment verification timed out. Please check payment status manually."
+            );
+        } catch (java.util.concurrent.ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RazorpayException) {
+                log.error("Failed to fetch payment status from Razorpay: transactionId={}", gatewayTransactionId, cause);
+                return new PaymentResponse(
+                    gatewayTransactionId,
+                    null,
+                    Payment.PaymentStatus.FAILED,
+                    null,
+                    null,
+                    cause.getMessage()
+                );
+            } else {
+                log.error("Unexpected error fetching payment status: transactionId={}", gatewayTransactionId, cause);
+                return new PaymentResponse(
+                    gatewayTransactionId,
+                    null,
+                    Payment.PaymentStatus.FAILED,
+                    null,
+                    null,
+                    "Payment verification failed: " + (cause != null ? cause.getMessage() : e.getMessage())
+                );
+            }
+        } catch (Exception e) {
+            log.error("Unexpected error in getPaymentStatus: transactionId={}", gatewayTransactionId, e);
+            return new PaymentResponse(
+                gatewayTransactionId,
+                null,
+                Payment.PaymentStatus.FAILED,
+                null,
+                null,
+                "Payment verification failed: " + e.getMessage()
             );
         }
     }
